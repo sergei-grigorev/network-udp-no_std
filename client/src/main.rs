@@ -1,5 +1,5 @@
 use std::{
-    io::{self, Write},
+    io::{self},
     net::UdpSocket,
 };
 

@@ -1,5 +1,3 @@
-use core::fmt;
-
 use crate::command::Request;
 
 pub const NETWORK_PAYLOAD_OFFSET: usize = size_of::<u64>() * 3;
