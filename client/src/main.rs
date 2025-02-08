@@ -3,9 +3,15 @@ use std::{
     net::UdpSocket,
 };
 
-use shared_lib::{make_new_request, parse_ack};
+use shared_lib::{
+    command::{NetworkCommand, Request},
+    make_new_command, make_new_request,
+    network::{MessageType, PackedHeader},
+    parse_command,
+};
 
 const SERVER_ADDR: &str = "127.0.0.1:8080";
+const ENC_PATTERN: &str = "Noise_NN_25519_ChaChaPoly_BLAKE2s";
 
 fn main() -> io::Result<()> {
     env_logger::init();
@@ -19,27 +25,47 @@ fn main() -> io::Result<()> {
     socket.connect(SERVER_ADDR)?;
 
     // make new request
-    let device_id: u64 = 1234567890;
-    let message_num: u64 = 1;
+    let device_id: u32 = 1234567890;
 
-    let mut message_buf = [0u8; 1400];
-    match make_new_request(&mut message_buf, device_id, message_num) {
-        Ok(size) => {
-            log::info!("Request size: {}", size);
-            socket.send(&message_buf[..size])?;
-        }
-        Err(err) => log::error!("Error making new request: {:#?}", err),
-    }
+    let mut buf = [0u8; 1400];
+    let handshake_command = NetworkCommand::HandhakeInit;
+    let handshake_size = make_new_command(&handshake_command, &mut buf, device_id, 0, 1, 0)
+        .expect("Failed to make handshake command");
+    socket
+        .send(&buf[..handshake_size])
+        .expect("Failed to send handshake command");
 
     // Receive the server's acknowledgement
-    let n = socket.recv(&mut message_buf)?;
+    let n = socket.recv(&mut buf)?;
 
-    match parse_ack(&message_buf[..n]) {
-        Ok(ack) => {
-            log::info!("Received ACK: {:#?}", ack);
-        }
-        Err(err) => log::error!("Error parsing ACK: {:#?}", err),
-    }
+    // parse header
+    let hrh = PackedHeader::try_deserialize(&buf[..n])
+        .expect("Failed to deserialize handshake response header");
+    log::info!("Handshake response header: {:?}", hrh);
+    let server_body = parse_command(&buf[PackedHeader::SIZE..n])
+        .expect("Failed to parse handshake response body");
+    log::info!("Handshake response body: {:?}", server_body);
+    let session_id = hrh.session_id;
+
+    assert_eq!(hrh.message_type, MessageType::HandshakeResponse);
+    assert_eq!(hrh.device_id, device_id);
+    assert_ne!(hrh.session_id, 0);
+    assert_eq!(hrh.ack, 1);
+
+    // send temperature information
+    let temp_size = make_new_request(
+        &Request::Temparature(28f32),
+        &mut buf,
+        device_id,
+        session_id,
+        2,
+        hrh.sequence,
+    )
+    .expect("Failed to make temperature request");
+
+    socket
+        .send(&buf[..temp_size])
+        .expect("Failed to send temperature information");
 
     Ok(())
 }
