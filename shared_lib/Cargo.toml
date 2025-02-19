@@ -11,3 +11,4 @@ musli = { version = "^0.0.126", default-features = false, features = [
     "storage",
 ] }
 byteorder = { version = "^1.5", default-features = false }
+thiserror = {version = "^2.0.11", default-features = false }

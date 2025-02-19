@@ -6,6 +6,8 @@ edition = "2021"
 [dependencies]
 shared_lib = { path = "../shared_lib" }
 log = "0.4.25"
-tracing-subscriber = "0.3.19"
-tracing = "0.1.41"
-snow = "0.9.6"
+tracing-subscriber = "^0.3.19"
+tracing = "^0.1.41"
+snow = "^0.9.6"
+tokio = { version = "^1.43.0", features = ["tracing", "macros", "rt", "net", "sync"] }
+thiserror = "^2.0.11"

@@ -1,50 +1,18 @@
-use crate::command::{NetworkCommand, Request};
+use crate::command::NetworkCommand;
 use crate::error::SerializeError;
-use crate::network::{MessageType, PackedHeader};
+use crate::network::PackedHeader;
 use byteorder::ByteOrder;
 use byteorder::NetworkEndian;
 use libc_print::libc_eprintln as eprintln;
 use musli::alloc::{ArrayBuffer, Slice};
-use musli::mode::Binary;
 use musli::{context, packed::Encoding};
-use musli::{Context, Decode, Encode};
 
 const BUF_SIZE: usize = size_of::<u16>();
 
 const OPTIONS: musli::Options = musli::options::new().fixed().native_byte_order().build();
 const ENCODING: Encoding<OPTIONS> = Encoding::new().with_options();
 
-/// Make a new request and serialize it into the buffer.
-/// Buffer must be enough to fit at least header_size + message_size + payload_size.
-/// The payload_size is the size of the payload in bytes. The function returns the number of bytes written to the buffer.
-/// If the buffer is too small, function panic. Buffer recommended size is 1400.
-pub fn make_new_request(
-    request: &Request,
-    buf: &mut [u8],
-    device_id: u32,
-    session_id: u16,
-    sequence: u16,
-    ack: u16,
-) -> Result<usize, SerializeError> {
-    if let Ok(payload_size) = write(request, &mut buf[PackedHeader::SIZE..]) {
-        // serialize header
-        let header = PackedHeader::new(
-            MessageType::EncryptedMessage,
-            device_id,
-            session_id,
-            sequence,
-            ack,
-        );
-        // add header
-        header.serialize_info(&mut buf[0..PackedHeader::SIZE]);
-        // serialize payload_size
-        Ok(PackedHeader::SIZE + usize::from(payload_size))
-    } else {
-        Err(SerializeError::NotParsed)
-    }
-}
-
-/// Make a new service message and serialize it into the buffer.
+/// Make a new message and serialize it into the buffer.
 /// Buffer must be enough to fit at least header_size + message_size + payload_size.
 /// The payload_size is the size of the payload in bytes. The function returns the number of bytes written to the buffer.
 /// If the buffer is too small, function panic. Buffer recommended size is 1400.
@@ -60,30 +28,10 @@ pub fn make_new_command(
         // serialize header
         let header = PackedHeader::new(command.into(), device_id, session_id, sequence, ack);
         // add header
-        header.serialize_info(&mut buf[0..PackedHeader::SIZE]);
+        header.serialize_info(&mut buf[0..PackedHeader::SIZE])?;
         Ok(PackedHeader::SIZE + usize::from(payload_size))
     } else {
         Err(SerializeError::NotParsed)
-    }
-}
-
-/// Parse a request from the buffer. Buffer must start with u64 representing the payload size.
-pub fn parse_payload(buf: &[u8]) -> Result<Request, SerializeError> {
-    let payload_size: u16 = NetworkEndian::read_u16(&buf);
-    if buf.len() >= usize::try_from(payload_size).unwrap_or_default() + BUF_SIZE {
-        // parse payload
-        let mut alloc_buf = ArrayBuffer::<256>::with_size();
-        let alloc = Slice::new(&mut alloc_buf);
-        let cx = context::new_in(&alloc);
-
-        ENCODING
-            .from_slice_with(&cx, &buf[BUF_SIZE..])
-            .map_err(|err| {
-                eprintln!("Error: {}", err);
-                SerializeError::NotParsed
-            })
-    } else {
-        Err(SerializeError::NotEnough)
     }
 }
 
@@ -107,10 +55,7 @@ pub fn parse_command(buf: &[u8]) -> Result<NetworkCommand, SerializeError> {
     }
 }
 
-fn write<T>(payload: &T, buf: &mut [u8]) -> Result<u16, SerializeError>
-where
-    T: Encode<Binary>,
-{
+fn write(payload: &NetworkCommand, buf: &mut [u8]) -> Result<u16, SerializeError> {
     let mut alloc_buf = ArrayBuffer::<256>::with_size();
     let alloc = Slice::new(&mut alloc_buf);
     let cx = context::new_in(&alloc);

@@ -88,8 +88,12 @@ impl PackedHeader {
         }
     }
 
-    pub fn serialize_info(&self, buf: &mut [u8]) {
-        assert!(buf.len() >= PackedHeader::SIZE);
+    /// Serialize the header into the buffer. Returns the number of bytes written.
+    /// If the buffer is too small, function returns an error. Buffer recommended size is bigger or equal [PackedHeader::SIZE].
+    pub fn serialize_info(&self, buf: &mut [u8]) -> Result<usize, SerializeError> {
+        if buf.len() < PackedHeader::SIZE {
+            return Err(SerializeError::NotEnough);
+        }
 
         NetworkEndian::write_u16(&mut buf[0..2], self.protocol_id);
         buf[2] = self.version;
@@ -98,6 +102,8 @@ impl PackedHeader {
         NetworkEndian::write_u16(&mut buf[8..10], self.session_id);
         NetworkEndian::write_u16(&mut buf[10..12], self.sequence);
         NetworkEndian::write_u16(&mut buf[12..14], self.ack);
+
+        Ok(PackedHeader::SIZE)
     }
 
     pub fn try_deserialize(buf: &[u8]) -> Result<Self, SerializeError> {
@@ -142,7 +148,9 @@ mod tests {
         let mut buf = [0u8; PackedHeader::SIZE];
 
         let header = PackedHeader::new(MessageType::HandshakeRequest, 1234567890, 100, 200, 150);
-        header.serialize_info(&mut buf);
+        let _ = header
+            .serialize_info(&mut buf)
+            .expect("Failed to serialize header");
 
         // try to deserialize now
         let deserialized_header = PackedHeader::try_deserialize(&buf).unwrap();
