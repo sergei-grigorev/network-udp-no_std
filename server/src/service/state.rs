@@ -108,11 +108,7 @@ impl State {
                 // send message to processing
                 if let Err(error) = session
                     .channel
-                    .send(session::ChannelMessage {
-                        addr,
-                        header,
-                        body,
-                    })
+                    .send(session::ChannelMessage { addr, header, body })
                     .await
                 {
                     log::error!(

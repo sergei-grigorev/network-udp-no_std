@@ -4,10 +4,10 @@ use std::{
 };
 
 use shared_lib::{
-    command::{NetworkCommand, BUFFER_SIZE, MESSAGE_SIZE},
+    command::{EncodedCommand, Information, COMMAND_SIZE, PACKET_SIZE},
     make_new_command,
     network::{MessageType, PackedHeader},
-    parse_command,
+    parse_command, serialize,
 };
 
 const SERVER_ADDR: &str = "127.0.0.1:8080";
@@ -28,7 +28,7 @@ fn main() -> io::Result<()> {
         .build_initiator()
         .expect("Failed to build initiator");
 
-    let mut handshake_buf = [0u8; BUFFER_SIZE];
+    let mut handshake_buf = [0u8; COMMAND_SIZE];
     let handshake_buf_size = initiator
         .write_message(&[], &mut handshake_buf)
         .expect("Failed to write handshake message");
@@ -36,13 +36,21 @@ fn main() -> io::Result<()> {
     // make new request
     let device_id: u32 = 1234567890;
 
-    let mut buf = [0u8; MESSAGE_SIZE];
-    let handshake_command = NetworkCommand::HandhakeInit {
+    let mut buf = [0u8; PACKET_SIZE];
+    let handshake_command = EncodedCommand {
         size: handshake_buf_size,
         buf: handshake_buf,
     };
-    let handshake_size = make_new_command(&handshake_command, &mut buf, device_id, 0, 1, 0)
-        .expect("Failed to make handshake command");
+    let handshake_size = make_new_command(
+        MessageType::HandshakeRequest,
+        &handshake_command,
+        &mut buf,
+        device_id,
+        0,
+        1,
+        0,
+    )
+    .expect("Failed to make handshake command");
     socket
         .send(&buf[..handshake_size])
         .expect("Failed to send handshake command");
@@ -64,21 +72,65 @@ fn main() -> io::Result<()> {
     assert_ne!(hrh.session_id, 0);
     assert_eq!(hrh.ack, 1);
 
-    // send temperature information
-    // let temp_command = NetworkCommand::EncryptedMessage(Request::Temparature(28f32));
-    // let temp_size = make_new_command(
-    //     &temp_command,
-    //     &mut buf,
-    //     device_id,
-    //     session_id,
-    //     2,
-    //     hrh.sequence,
-    // )
-    // .expect("Failed to make temperature request");
+    let mut read_buf = [0u8; COMMAND_SIZE];
+    initiator
+        .read_message(&server_body.buf[..server_body.size], &mut read_buf)
+        .expect("Failed to read handshake message");
 
-    // socket
-    //     .send(&buf[..temp_size])
-    //     .expect("Failed to send temperature information");
+    let mut noise = initiator
+        .into_transport_mode()
+        .expect("Failed to enter transport mode");
+
+    // prepare temperature information
+    let mut tmp_buf = [0u8; COMMAND_SIZE];
+    let information = Information::Temparature(25f32);
+    let inf_size = usize::from(
+        serialize::write_non_encrypted(&information, &mut tmp_buf)
+            .expect("Failed to serialize temperature information"),
+    );
+
+    // encrypt message
+    let mut enc_buf = [0u8; COMMAND_SIZE];
+    let enc_size = noise
+        .write_message(&tmp_buf[..inf_size], &mut enc_buf)
+        .expect("Failed to write message");
+
+    // send temperature information
+    let temp_command = EncodedCommand {
+        size: enc_size,
+        buf: enc_buf,
+    };
+    let temp_size = make_new_command(
+        MessageType::EncryptedMessage,
+        &temp_command,
+        &mut buf,
+        hrh.device_id,
+        hrh.session_id,
+        2,
+        hrh.sequence,
+    )
+    .expect("Failed to make temperature request");
+
+    socket
+        .send(&buf[..temp_size])
+        .expect("Failed to send temperature information");
+
+    // Receive the server's acknowledgement
+    let n = socket.recv(&mut buf)?;
+
+    // parse header
+    let hrh = PackedHeader::try_deserialize(&buf[..n])
+        .expect("Failed to deserialize ack response header");
+    log::info!("Ack response header: {:?}", hrh);
+    let server_body =
+        parse_command(&buf[PackedHeader::SIZE..n]).expect("Failed to parse ack response body");
+    log::info!("Ack response body: {:?}", server_body);
+    // let session_id = hrh.session_id;
+
+    assert_eq!(hrh.message_type, MessageType::Ack);
+    assert_eq!(hrh.device_id, device_id);
+    assert_ne!(hrh.session_id, 0);
+    assert_eq!(hrh.ack, 2);
 
     Ok(())
 }

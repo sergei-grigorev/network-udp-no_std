@@ -4,9 +4,9 @@ use tokio::sync::mpsc::{self, Sender};
 use std::net::SocketAddr;
 
 use shared_lib::{
-    command::{NetworkCommand, MESSAGE_SIZE},
+    command::{EncodedCommand, COMMAND_SIZE, PACKET_SIZE},
     make_new_command,
-    network::PackedHeader,
+    network::{MessageType, PackedHeader},
 };
 use tracing::{info_span, Instrument};
 
@@ -98,19 +98,26 @@ impl SessionState {
 
                 // if message is processed successfully, send response back
                 // otherwise, send an error
-                let response: NetworkCommand = match result {
-                    Ok(result) => result,
+                let (response_type, response) = match result {
+                    Ok(success) => (success.message_type, success.command),
                     Err(error) => {
                         span.in_scope(|| {
                             log::error!("Failed to process message: {:?}", error);
                         });
-                        NetworkCommand::Error
+                        (
+                            MessageType::Error,
+                            EncodedCommand {
+                                size: 0,
+                                buf: [0u8; COMMAND_SIZE],
+                            },
+                        )
                     }
                 };
 
                 // try to serialize
-                let mut buf = [0u8; MESSAGE_SIZE];
+                let mut buf = [0u8; PACKET_SIZE];
                 match make_new_command(
+                    response_type,
                     &response,
                     &mut buf,
                     self.device_id,

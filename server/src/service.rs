@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use shared_lib::command::MESSAGE_SIZE;
+use shared_lib::command::PACKET_SIZE;
 use state::State;
 use tokio::{
     net::UdpSocket,
@@ -32,7 +32,7 @@ pub async fn start_server(addr: &str) -> std::io::Result<()> {
 
     // server state
     let mut state: State = State::new(sender);
-    let mut buf = [0u8; MESSAGE_SIZE];
+    let mut buf = [0u8; PACKET_SIZE];
 
     // todo: run some time to periodical cleanup
     // todo: add graceful shutdown

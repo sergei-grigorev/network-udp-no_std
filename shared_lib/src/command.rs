@@ -2,54 +2,28 @@ use core::fmt::Debug;
 
 use musli::{Decode, Encode};
 
-use crate::network::MessageType;
+pub const COMMAND_SIZE: usize = 1400;
+pub type Buffer = [u8; COMMAND_SIZE];
 
-pub const BUFFER_SIZE: usize = 1400;
-pub type Buffer = [u8; BUFFER_SIZE];
-
-pub const MESSAGE_SIZE: usize = 1500;
+pub const PACKET_SIZE: usize = 1500;
 
 #[derive(Encode, Decode, Debug)]
-pub enum Request {
+pub enum Information {
     Temparature(f32),
     AirPressure(f32),
 }
 
 #[derive(Encode, Decode)]
-pub enum NetworkCommand {
-    HandhakeInit { size: usize, buf: Buffer },
-    HandshakeResponse { size: usize, buf: Buffer },
-    EncryptedMessage { size: usize, buf: Buffer },
-    Error,
+pub struct EncodedCommand {
+    pub size: usize,
+    pub buf: Buffer,
 }
 
-impl From<&NetworkCommand> for MessageType {
-    fn from(val: &NetworkCommand) -> Self {
-        match val {
-            NetworkCommand::HandhakeInit { size: _, buf: _ } => MessageType::HandshakeRequest,
-            NetworkCommand::HandshakeResponse { size: _, buf: _ } => MessageType::HandshakeResponse,
-            NetworkCommand::EncryptedMessage { size: _, buf: _ } => MessageType::EncryptedMessage,
-            NetworkCommand::Error => MessageType::Error,
-        }
-    }
-}
-
-impl Debug for NetworkCommand {
+impl Debug for EncodedCommand {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            NetworkCommand::HandhakeInit { size, buf: _ } => f.write_fmt(format_args!(
-                "HandshakeInit {{ size: {}, buf: <redundant> }}",
-                size
-            )),
-            NetworkCommand::HandshakeResponse { size, buf: _ } => f.write_fmt(format_args!(
-                "HandshakeResponse {{ size: {}, buf: <redundant> }}",
-                size
-            )),
-            NetworkCommand::EncryptedMessage { size, buf: _ } => f.write_fmt(format_args!(
-                "DeviceRequest {{ size: {}, buf: <redundant> }}",
-                size
-            )),
-            NetworkCommand::Error => f.write_str("Error()"),
-        }
+        f.write_fmt(format_args!(
+            "NetworkCommand {{ size: {}, buf: <redundant> }}",
+            self.size
+        ))
     }
 }
