@@ -37,8 +37,8 @@ pub fn make_new_command(
 
 /// Parse a command from the buffer. Buffer must start with u64 representing the payload size.
 pub fn parse_command(buf: &[u8]) -> Result<NetworkCommand, SerializeError> {
-    let payload_size: u16 = NetworkEndian::read_u16(&buf);
-    if buf.len() >= usize::try_from(payload_size).unwrap_or_default() + BUF_SIZE {
+    let payload_size: u16 = NetworkEndian::read_u16(buf);
+    if buf.len() >= usize::from(payload_size) + BUF_SIZE {
         // parse payload
         let mut alloc_buf = ArrayBuffer::<256>::with_size();
         let alloc = Slice::new(&mut alloc_buf);
@@ -68,7 +68,7 @@ fn write(payload: &NetworkCommand, buf: &mut [u8]) -> Result<u16, SerializeError
         Err(error) => {
             // report error
             eprintln!("Error: {}", error);
-            return Err(SerializeError::TooBig);
+            Err(SerializeError::TooBig)
         }
     }
 }

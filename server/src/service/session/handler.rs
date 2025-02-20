@@ -7,6 +7,8 @@ use shared_lib::{
 use thiserror::Error;
 use tracing::instrument;
 
+use crate::service::session::SnowState;
+
 #[derive(Error, Debug)]
 pub enum ProcessingError {
     #[error("Unexpected message type: {0:?}")]
@@ -17,11 +19,15 @@ pub enum ProcessingError {
     IncorrectHandshake { session_id: u16, seq: u16 },
     #[error("Message is corrupted and cannot be parsed: {0}")]
     MessageCorrupted(#[from] SerializeError),
+    #[error("Session is in incorrect state")]
+    IncorrectState,
+    #[error("Encryption error")]
+    EncryptionError(#[from] snow::Error),
 }
 
-#[instrument(skip(header, body), fields(seq=header.sequence, device=header.device_id))]
+#[instrument(skip_all, fields(seq=header.sequence, device=header.device_id, session=session_state.session_id))]
 pub async fn process(
-    session_id: u16,
+    session_state: &mut super::SessionState,
     header: PackedHeader,
     body: &[u8],
 ) -> Result<NetworkCommand, ProcessingError> {
@@ -29,27 +35,61 @@ pub async fn process(
 
     match header.message_type {
         MessageType::HandshakeRequest => {
-            if header.session_id != 0 || header.sequence != 1 {
+            // session should not be opened yet
+            if header.session_id != 0 {
                 return Err(ProcessingError::IncorrectHandshake {
-                    session_id: header.session_id,
+                    session_id: session_state.session_id,
                     seq: header.sequence,
                 });
             }
 
-            let handshake_body = parse_command(&&body)?;
+            let handshake_body = parse_command(body)?;
             log::info!("Handshake body: {:?}", handshake_body);
+
+            let NetworkCommand::HandhakeInit { size, buf } = handshake_body else {
+                return Err(ProcessingError::IncorrectHandshake {
+                    session_id: session_state.session_id,
+                    seq: header.sequence,
+                });
+            };
+
+            // expected handshake ready state
+            let SnowState::Handshake(ref mut noise) = session_state.snow_state else {
+                return Err(ProcessingError::IncorrectHandshake {
+                    session_id: session_state.session_id,
+                    seq: header.sequence,
+                });
+            };
+
+            // read handshake message
+            let mut read_buf = [0u8; BUFFER_SIZE];
+            noise.read_message(&buf[..size], &mut read_buf)?;
+
+            // write handshake message
+            let mut write_buf = [0u8; BUFFER_SIZE];
+            let write_size = noise.write_message(&[], &mut write_buf)?;
+
+            // transition to the next state
+            session_state.make_transport_mode()?;
 
             // generate key and write back
             Ok(NetworkCommand::HandshakeResponse {
-                size: 0,
-                buf: [0u8; BUFFER_SIZE],
+                size: write_size,
+                buf: write_buf,
             })
         }
         MessageType::HandshakeResponse => {
             Err(ProcessingError::NotExpectedMessage(header.message_type))
         }
-        MessageType::EncryptedMessage => Err(ProcessingError::NotImplemented(header.message_type)),
+        MessageType::EncryptedMessage => {
+            let SnowState::Transport(ref mut _noise) = session_state.snow_state else {
+                return Err(ProcessingError::IncorrectState);
+            };
+
+            Err(ProcessingError::NotImplemented(header.message_type))
+        }
         MessageType::Ack => Err(ProcessingError::NotImplemented(header.message_type)),
+        MessageType::Timeout => Err(ProcessingError::NotExpectedMessage(header.message_type)),
         MessageType::Error => Err(ProcessingError::NotImplemented(header.message_type)),
     }
 }

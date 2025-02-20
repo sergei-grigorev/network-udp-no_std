@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::SocketAddr};
+use std::net::SocketAddr;
 
 use shared_lib::command::MESSAGE_SIZE;
 use state::State;
@@ -12,14 +12,20 @@ use tracing::{span, Instrument, Level};
 mod session;
 mod state;
 
-// const ENC_PATTERN: &str = "Noise_NN_25519_ChaChaPoly_BLAKE2s";
-
 struct Response {
     addr: SocketAddr,
     buf: Vec<u8>,
 }
 
+/// Start the server.
+///
+/// Returns a result indicating success or failure
+///
+/// **Arguments**
+/// - `addr`: The address to bind the server to.
+///
 pub async fn start_server(addr: &str) -> std::io::Result<()> {
+    // Try to open UDP socket
     let socket = UdpSocket::bind(addr).await?;
 
     let (sender, mut receiver) = mpsc::channel::<Response>(10);
@@ -30,17 +36,19 @@ pub async fn start_server(addr: &str) -> std::io::Result<()> {
 
     // todo: run some time to periodical cleanup
     // todo: add graceful shutdown
-    let mut is_shutdown = false;
-    while !is_shutdown {
+    loop {
         let input_queue = socket.recv_from(&mut buf);
         let output_queue = receiver.recv();
 
+        // wait for either input or output
         select! {
             socket_received = input_queue => {
                 match socket_received {
                     Ok((amt, addr)) => {
                         let socket_span = span!(Level::INFO, "udp_server", addr = addr.to_string());
-                        let _ = state.process_received_message(&buf, amt, addr).instrument(socket_span).await;
+                        // wait for the message to be processed (ignore errors)
+                        let bytes = &buf[..amt];
+                        let _ = state.process_received_message(bytes, addr).instrument(socket_span).await;
                     }
                     Err(err) => {
                         log::error!("Failed to receive message: {:?}", err);
@@ -50,10 +58,12 @@ pub async fn start_server(addr: &str) -> std::io::Result<()> {
             output_message = output_queue => {
                 if let Some(output_message) = output_message {
                     let socket_span = span!(Level::INFO, "udp_server", addr = output_message.addr.to_string());
+                    // wait for the message to be sent (ignore errors)
                     let _ = send_response(&socket, output_message).instrument(socket_span).await;
                 } else {
                     log::warn!("Response queue has been stopped");
-                    is_shutdown = true;
+                    // exit gracefully
+                    break;
                 }
             }
         };
@@ -62,8 +72,14 @@ pub async fn start_server(addr: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Send a response to a socket. Returns an error if the message could not be sent.
+/// Send a response to the client.
+///
+/// Returns a result indicating success or failure
+///
 /// todo: check if it was delivered
+/// **Arguments**
+/// - `socket`: The socket to send the message to.
+/// - `output_message`: The message to send.
 async fn send_response(socket: &UdpSocket, output_message: Response) -> std::io::Result<()> {
     log::info!("Sending response to {}", output_message.addr);
 
@@ -71,6 +87,7 @@ async fn send_response(socket: &UdpSocket, output_message: Response) -> std::io:
         .send_to(&output_message.buf, output_message.addr)
         .await
     {
+        // In case of error, log it and return it
         log::error!("Failed to send message: {:?}", error);
         Err(error)
     } else {

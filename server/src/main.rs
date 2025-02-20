@@ -12,6 +12,7 @@ async fn main() -> std::io::Result<()> {
         .with(EnvFilter::from_default_env())
         .init();
 
+    // Start the server
     start_server(SERVER_ADDR).await?;
 
     Ok(())

@@ -39,15 +39,19 @@ impl State {
         }
     }
 
+    /// Process a received message from a client.
+    ///
+    /// **Arguments**
+    /// - `buffer`: The buffer containing the message.
+    /// - `socket_addr`: The address of the client.
     pub async fn process_received_message(
         &mut self,
-        buf: &[u8],
-        amt: usize,
+        buffer: &[u8],
         socket_addr: SocketAddr,
     ) -> Result<(), ProcessingError> {
         // try to parse if the message has the correct format
-        log::info!("Received new message size: {}", amt);
-        let (header, body) = parse_request(&buf, amt)?;
+        log::info!("Received new message size: {}", buffer.len());
+        let (header, body) = parse_request(buffer)?;
 
         if let Err(error) = self.process_message(socket_addr, header, body).await {
             log::error!("Failed to process message: {:?}", error);
@@ -62,7 +66,7 @@ impl State {
     ) -> Result<(), ProcessingError> {
         let session_id = if header.session_id == 0 {
             // todo: restart if sessions are MAX_SIZE
-            self.last_session_id = self.last_session_id + 1;
+            self.last_session_id += 1;
 
             let session_id = self.last_session_id;
             log::info!("Assign new session id: {}", session_id);
@@ -106,8 +110,8 @@ impl State {
                     .channel
                     .send(session::ChannelMessage {
                         addr,
-                        header: header,
-                        body: body,
+                        header,
+                        body,
                     })
                     .await
                 {
@@ -139,11 +143,15 @@ impl State {
     }
 }
 
-/// Parse a buffer to header and command. Buffer expected size should be at least PackedHeader::SIZE. Returns header and command.
-/// In case of error, returns short Error description.
-fn parse_request(buf: &[u8], amt: usize) -> Result<(PackedHeader, Vec<u8>), SerializeError> {
+/// Parse a buffer to header and command. Buffer expected size should be at least PackedHeader::SIZE.
+///
+/// Returns a tuple with the header and the command buffer.
+///
+/// **Arguments**
+/// - `buf`: The buffer to parse.
+fn parse_request(buf: &[u8]) -> Result<(PackedHeader, Vec<u8>), SerializeError> {
     let header: PackedHeader = PackedHeader::try_deserialize(buf)?;
-    let mut buffer = Vec::with_capacity(amt - PackedHeader::SIZE);
-    buffer.extend_from_slice(&buf[PackedHeader::SIZE..amt]);
+    let mut buffer = Vec::with_capacity(buf.len() - PackedHeader::SIZE);
+    buffer.extend_from_slice(&buf[PackedHeader::SIZE..buf.len()]);
     Ok((header, buffer))
 }

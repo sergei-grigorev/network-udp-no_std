@@ -4,7 +4,7 @@ use std::{
 };
 
 use shared_lib::{
-    command::{NetworkCommand, Request, BUFFER_SIZE, MESSAGE_SIZE},
+    command::{NetworkCommand, BUFFER_SIZE, MESSAGE_SIZE},
     make_new_command,
     network::{MessageType, PackedHeader},
     parse_command,

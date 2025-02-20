@@ -7,6 +7,7 @@ use crate::error::SerializeError;
 /// 2 - HandshareResponse
 /// 3 - EncryptedMessage
 /// 4 - Ack
+/// 5 - Timeout (session expired)
 /// FF - Error
 #[derive(PartialEq, Clone, Debug)]
 pub enum MessageType {
@@ -14,6 +15,7 @@ pub enum MessageType {
     HandshakeResponse,
     EncryptedMessage,
     Ack,
+    Timeout,
     Error,
 }
 
@@ -47,19 +49,21 @@ impl TryFrom<u8> for MessageType {
             2 => Ok(Self::HandshakeResponse),
             3 => Ok(Self::EncryptedMessage),
             4 => Ok(Self::Ack),
+            5 => Ok(Self::Timeout),
             0xFF => Ok(Self::Error),
             _ => Err(SerializeError::UnknownMessageType),
         }
     }
 }
 
-impl Into<u8> for MessageType {
-    fn into(self) -> u8 {
-        match self {
+impl From<MessageType> for u8 {
+    fn from(val: MessageType) -> Self {
+        match val {
             MessageType::HandshakeRequest => 1,
             MessageType::HandshakeResponse => 2,
             MessageType::EncryptedMessage => 3,
             MessageType::Ack => 4,
+            MessageType::Timeout => 5,
             MessageType::Error => 0xFF,
         }
     }
@@ -107,7 +111,7 @@ impl PackedHeader {
     }
 
     pub fn try_deserialize(buf: &[u8]) -> Result<Self, SerializeError> {
-        if !(buf.len() < PackedHeader::SIZE) {
+        if buf.len() >= PackedHeader::SIZE {
             let protocol_id: u16 = NetworkEndian::read_u16(&buf[0..2]);
             if protocol_id != Self::PROTOCOL_ID {
                 return Err(SerializeError::UnknownProtocol);
@@ -134,7 +138,7 @@ impl PackedHeader {
                 ack,
             })
         } else {
-            return Err(SerializeError::NotEnough);
+            Err(SerializeError::NotEnough)
         }
     }
 }

@@ -23,9 +23,9 @@ pub enum NetworkCommand {
     Error,
 }
 
-impl Into<MessageType> for &NetworkCommand {
-    fn into(self) -> MessageType {
-        match self {
+impl From<&NetworkCommand> for MessageType {
+    fn from(val: &NetworkCommand) -> Self {
+        match val {
             NetworkCommand::HandhakeInit { size: _, buf: _ } => MessageType::HandshakeRequest,
             NetworkCommand::HandshakeResponse { size: _, buf: _ } => MessageType::HandshakeResponse,
             NetworkCommand::EncryptedMessage { size: _, buf: _ } => MessageType::EncryptedMessage,
