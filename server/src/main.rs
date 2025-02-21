@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use service::start_server;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
