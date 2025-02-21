@@ -8,3 +8,5 @@ shared_lib = { path = "../shared_lib" }
 log = "0.4.25"
 env_logger = "0.11.6"
 snow = "0.9.6"
+heapless = { version = "^0.8.0" }
+thiserror = { version = "^2.0.11", default-features = false }
