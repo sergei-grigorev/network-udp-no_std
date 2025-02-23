@@ -28,12 +28,13 @@ fn main() -> std::io::Result<()> {
     // wait for the server's response
     let mut buf = [0u8; PACKET_SIZE];
     let n = socket.recv(&mut buf)?;
-
+    let (hrh, body) = client::parse_request(&buf[..n]).expect("Failed to parse ack");
     client
-        .receive_handshake(&buf[..n])
+        .receive_handshake(hrh, &body)
         .expect("Failed to process received handshake");
 
     // prepare the temperature request
+    log::info!("Sending encrypted temperature request");
     let temperature = client
         .temperature_message()
         .expect("Failed to create temperature message");
@@ -42,9 +43,11 @@ fn main() -> std::io::Result<()> {
 
     // wait for acknowledgement
     let n = socket.recv(&mut buf)?;
+    let (hrh, body) = client::parse_request(&buf[..n]).expect("Failed to parse ack");
     client
-        .receive_ack(&buf[..n])
+        .receive_ack(hrh, &body)
         .expect("Failed to process received ack");
 
+    log::info!("Received ack, close connection");
     Ok(())
 }

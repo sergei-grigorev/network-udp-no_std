@@ -95,7 +95,7 @@ pub async fn process(
             // read encrypted message
             let EncodedCommand { size, buf } = encrypted_body;
             let mut read_buf = [0u8; COMMAND_SIZE];
-            noise.read_message(&buf[..size], &mut read_buf)?;
+            noise.read_message(header.nonce(), &buf[..size], &mut read_buf)?;
 
             let decrypted_body = parse_non_encrypted(&read_buf[..size])?;
             log::info!("Decrypted body: {:?}", decrypted_body);

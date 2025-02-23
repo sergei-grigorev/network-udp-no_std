@@ -5,8 +5,8 @@ use std::net::SocketAddr;
 
 use shared_lib::{
     command::{EncodedCommand, COMMAND_SIZE, PACKET_SIZE},
-    make_new_command,
     network::{MessageType, PackedHeader},
+    write_command,
 };
 use tracing::{info_span, Instrument};
 
@@ -37,7 +37,7 @@ enum SnowState {
     // waiting for handshake
     Handshake(Box<snow::HandshakeState>),
     // ready to send and receive messages
-    Transport(snow::TransportState),
+    Transport(snow::StatelessTransportState),
 }
 
 impl Session {
@@ -115,16 +115,15 @@ impl SessionState {
                 };
 
                 // try to serialize
-                let mut buf = [0u8; PACKET_SIZE];
-                match make_new_command(
+                let header = PackedHeader::new(
                     response_type,
-                    &response,
-                    &mut buf,
                     self.device_id,
                     self.session_id,
                     self.last_sequence_id,
                     request_sequence_id,
-                ) {
+                );
+                let mut buf = [0u8; PACKET_SIZE];
+                match write_command(&header, &response, &mut buf) {
                     Ok(content_size) => {
                         let mut content: Vec<u8> = Vec::with_capacity(content_size);
                         content.extend_from_slice(&buf[..content_size]);
@@ -158,7 +157,7 @@ impl SessionState {
     fn make_transport_mode(&mut self) -> Result<bool, snow::Error> {
         match self.snow_state.take() {
             SnowState::Handshake(handshake) => {
-                let transport_state = handshake.into_transport_mode()?;
+                let transport_state = handshake.into_stateless_transport_mode()?;
                 self.snow_state = SnowState::Transport(transport_state);
                 Ok(true)
             }

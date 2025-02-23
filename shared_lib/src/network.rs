@@ -141,6 +141,11 @@ impl PackedHeader {
             Err(SerializeError::NotEnough)
         }
     }
+
+    /// Get nonce from session id and sequence.
+    pub fn nonce(&self) -> u64 {
+        ((self.session_id as u64) << 32) | (self.sequence as u64)
+    }
 }
 
 #[cfg(test)]

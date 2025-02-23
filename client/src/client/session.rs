@@ -1,9 +1,9 @@
 use heapless::Vec;
 use shared_lib::{
     command::{EncodedCommand, Information, COMMAND_SIZE, PACKET_SIZE},
-    make_new_command,
+    error::SerializeError,
     network::{MessageType, PackedHeader},
-    parse_command, serialize,
+    parse_command, serialize, write_command,
 };
 use thiserror::Error;
 
@@ -25,7 +25,7 @@ pub struct Session {
 enum Noise {
     None,
     HandshakeState(snow::HandshakeState),
-    TransportState(snow::TransportState),
+    TransportState(snow::StatelessTransportState),
 }
 
 #[derive(Debug, Error)]
@@ -33,8 +33,8 @@ pub enum Error {
     #[error("Encryption error: {0}")]
     Encryption(#[from] snow::Error),
     #[error("Serialization error: {0}")]
-    Serialization(#[from] shared_lib::error::SerializeError),
-    #[error("Incorrect state")]
+    Serialization(#[from] SerializeError),
+    #[error("Incorrect session state")]
     IncorrectState,
 }
 
@@ -66,14 +66,18 @@ impl Session {
         // serialize that into message
         let mut output_vec = OutputVec::new();
         let _ = output_vec.resize_default(PACKET_SIZE);
-        let handshake_size = make_new_command(
+        let handshake_header = PackedHeader::new(
             MessageType::HandshakeRequest,
-            &handshake_command,
-            output_vec.as_mut_slice(),
             self.device_id,
             0,
-            1,
+            self.sequence_id,
             0,
+        );
+
+        let handshake_size = write_command(
+            &handshake_header,
+            &handshake_command,
+            output_vec.as_mut_slice(),
         )?;
 
         self.snow_state = Noise::HandshakeState(initiator);
@@ -82,12 +86,9 @@ impl Session {
         Ok(output_vec)
     }
 
-    pub fn receive_handshake(&mut self, buf: &[u8]) -> Result<()> {
-        // parse header
-        let hrh = PackedHeader::try_deserialize(buf)?;
-
+    pub fn receive_handshake(&mut self, hrh: PackedHeader, server_body: &[u8]) -> Result<()> {
         log::info!("Handshake response header: {:?}", hrh);
-        let server_body = parse_command(&buf[PackedHeader::SIZE..])?;
+        let server_body = parse_command(server_body)?;
         log::info!("Handshake response body: {:?}", server_body);
 
         self.session_id = hrh.session_id;
@@ -103,7 +104,7 @@ impl Session {
         // read handshake message and finish handshake
         if let Noise::HandshakeState(mut initiator) = noise_state {
             initiator.read_message(&server_body.buf[..server_body.size], &mut read_buf)?;
-            self.snow_state = Noise::TransportState(initiator.into_transport_mode()?);
+            self.snow_state = Noise::TransportState(initiator.into_stateless_transport_mode()?);
             Ok(())
         } else {
             Err(Error::IncorrectState)
@@ -118,9 +119,18 @@ impl Session {
             let information = Information::Temparature(25f32);
             let inf_size = usize::from(serialize::write_non_encrypted(&information, &mut tmp_buf)?);
 
+            let header = PackedHeader::new(
+                MessageType::EncryptedMessage,
+                self.device_id,
+                self.session_id,
+                self.sequence_id,
+                self.last_server_message_id,
+            );
+
             // encrypt message
             let mut enc_buf = [0u8; COMMAND_SIZE];
-            let enc_size = noise.write_message(&tmp_buf[..inf_size], &mut enc_buf)?;
+            let enc_size =
+                noise.write_message(header.nonce(), &tmp_buf[..inf_size], &mut enc_buf)?;
 
             // send temperature information
             let temp_command = EncodedCommand {
@@ -130,15 +140,9 @@ impl Session {
 
             let mut output_vec = OutputVec::new();
             let _ = output_vec.resize_default(PACKET_SIZE);
-            let temperature_size = make_new_command(
-                MessageType::EncryptedMessage,
-                &temp_command,
-                output_vec.as_mut_slice(),
-                self.device_id,
-                self.session_id,
-                self.sequence_id,
-                0,
-            )?;
+
+            let temperature_size =
+                write_command(&header, &temp_command, output_vec.as_mut_slice())?;
 
             output_vec.truncate(temperature_size);
             Ok(output_vec)
@@ -147,10 +151,7 @@ impl Session {
         }
     }
 
-    pub fn receive_ack(&mut self, buf: &[u8]) -> Result<()> {
-        // parse header
-        let hrh = PackedHeader::try_deserialize(buf)?;
-
+    pub fn receive_ack(&mut self, hrh: PackedHeader, _: &[u8]) -> Result<()> {
         assert_eq!(hrh.message_type, MessageType::Ack);
         assert_eq!(hrh.device_id, self.device_id);
         assert_eq!(hrh.session_id, self.session_id);
@@ -164,5 +165,24 @@ impl Session {
 impl Noise {
     fn take(&mut self) -> Self {
         core::mem::replace(self, Noise::None)
+    }
+}
+
+/// Parse a buffer to header and command. Buffer expected size should be at least PackedHeader::SIZE.
+///
+/// Returns a tuple with the header and the command buffer.
+///
+/// **Arguments**
+/// - `buf`: The buffer to parse.
+pub fn parse_request(buf: &[u8]) -> Result<(PackedHeader, OutputVec)> {
+    let header: PackedHeader = PackedHeader::try_deserialize(buf)?;
+    let mut buffer = OutputVec::new();
+    if buffer
+        .extend_from_slice(&buf[PackedHeader::SIZE..buf.len()])
+        .is_ok()
+    {
+        Ok((header, buffer))
+    } else {
+        Err(Error::Serialization(SerializeError::TooBig))
     }
 }

@@ -27,6 +27,7 @@ struct Response {
 pub async fn start_server(addr: &str) -> std::io::Result<()> {
     // Try to open UDP socket
     let socket = UdpSocket::bind(addr).await?;
+    log::info!("UDP server started on {}", addr);
 
     let (sender, mut receiver) = mpsc::channel::<Response>(10);
 
