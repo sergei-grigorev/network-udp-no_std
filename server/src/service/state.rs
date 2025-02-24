@@ -6,6 +6,10 @@ use tokio::sync::mpsc::Sender;
 
 const SESSIONS_MAX_COUNT: usize = 100;
 
+/// Timeout for inactive sessions.
+/// This is used to remove inactive sessions.
+const INACTIVE_SESSION_TIMEOUT_SEC: u64 = 15 * 160; // 15 minutes
+
 use super::{
     session::{self, Session},
     Response,
@@ -135,6 +139,26 @@ impl State {
             }
         } else {
             Err(ProcessingError::SessionsNotFound(session_id))
+        }
+    }
+
+    /// Cleanup inactive sessions.
+    pub fn cleanup(&mut self) {
+        let now = Instant::now();
+        let mut to_remove = Vec::new();
+
+        for (session_id, session) in &mut self.sessions {
+            if now.duration_since(session.last_timestamp).as_secs() > INACTIVE_SESSION_TIMEOUT_SEC {
+                log::info!(
+                    "Session {} is inactive for more than {INACTIVE_SESSION_TIMEOUT_SEC} seconds",
+                    session_id
+                );
+                to_remove.push(*session_id);
+            }
+        }
+
+        for session_id in to_remove {
+            self.sessions.remove(&session_id);
         }
     }
 }

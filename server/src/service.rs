@@ -12,6 +12,10 @@ use tracing::{span, Instrument, Level};
 mod session;
 mod state;
 
+/// Cleanup interval in seconds.
+/// This is used to remove inactive sessions.
+const CLEANUP_INTERVAL: u64 = 5 * 60; // 5 minutes
+
 struct Response {
     addr: SocketAddr,
     buf: Vec<u8>,
@@ -35,11 +39,16 @@ pub async fn start_server(addr: &str) -> std::io::Result<()> {
     let mut state: State = State::new(sender);
     let mut buf = [0u8; PACKET_SIZE];
 
-    // todo: run some time to periodical cleanup
+    // schedule cleanup task every 5 minutes
+    let mut cleanup_interval =
+        tokio::time::interval(std::time::Duration::from_secs(CLEANUP_INTERVAL));
+
     // todo: add graceful shutdown
     loop {
         let input_queue = socket.recv_from(&mut buf);
         let output_queue = receiver.recv();
+
+        let cleanup_task = cleanup_interval.tick();
 
         // wait for either input or output
         select! {
@@ -66,6 +75,14 @@ pub async fn start_server(addr: &str) -> std::io::Result<()> {
                     // exit gracefully
                     break;
                 }
+            },
+            _ = cleanup_task => {
+                log::debug!("Run cleanup task");
+                state.cleanup();
+            },
+            _ = tokio::signal::ctrl_c() => {
+                log::info!("Received Ctrl-C, shutting down");
+                break;
             }
         };
     }

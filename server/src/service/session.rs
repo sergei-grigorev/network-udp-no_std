@@ -15,6 +15,7 @@ use super::Response;
 mod handler;
 
 const ENC_PATTERN: &str = "Noise_NN_25519_ChaChaPoly_BLAKE2s";
+const QUEUE_SIZE: usize = 10;
 
 pub struct Session {
     pub last_sequence_id: u16,
@@ -48,7 +49,7 @@ impl Session {
         session_id: u16,
         response_queue: Sender<Response>,
     ) -> Sender<ChannelMessage> {
-        let (sender, receiver) = mpsc::channel::<ChannelMessage>(10);
+        let (sender, receiver) = mpsc::channel::<ChannelMessage>(QUEUE_SIZE);
 
         // start new async task to handle messages
         tokio::spawn(async move {
@@ -148,7 +149,11 @@ impl SessionState {
                 }
             } else {
                 // handle timeout
-                log::info!("Session timed out");
+                log::info!(
+                    "Session [{}], device [{}] timed out",
+                    self.session_id,
+                    self.device_id
+                );
                 break;
             }
         }
