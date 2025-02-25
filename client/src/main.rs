@@ -1,8 +1,11 @@
-use std::net::UdpSocket;
+use std::{net::UdpSocket, time::Duration};
 
+use heapless::Vec;
 use shared_lib::command::PACKET_SIZE;
 
 const SERVER_ADDR: &str = "127.0.0.1:8080";
+
+mod channel;
 
 fn main() -> std::io::Result<()> {
     env_logger::init();
@@ -23,12 +26,18 @@ fn main() -> std::io::Result<()> {
         .initiate_handshake()
         .expect("Failed to initiate handshake");
 
-    socket.send(handshake_init.as_slice())?;
+    // send and wait for the server's response
+    let mut read_buf: Vec<u8, PACKET_SIZE> = Vec::new();
+    channel::send_and_wait(
+        &socket,
+        &handshake_init,
+        1,
+        &mut read_buf,
+        Duration::from_secs(1),
+        5,
+    )?;
 
-    // wait for the server's response
-    let mut buf = [0u8; PACKET_SIZE];
-    let n = socket.recv(&mut buf)?;
-    let (hrh, body) = client::parse_request(&buf[..n]).expect("Failed to parse ack");
+    let (hrh, body) = client::parse_request(&read_buf).expect("Failed to parse ack");
     client
         .receive_handshake(hrh, &body)
         .expect("Failed to process received handshake");
@@ -39,11 +48,18 @@ fn main() -> std::io::Result<()> {
         .temperature_message()
         .expect("Failed to create temperature message");
 
-    socket.send(temperature.as_slice())?;
+    // send and wait for the server's response
+    channel::send_and_wait(
+        &socket,
+        temperature.as_slice(),
+        2,
+        &mut read_buf,
+        Duration::from_secs(1),
+        5,
+    )?;
 
     // wait for acknowledgement
-    let n = socket.recv(&mut buf)?;
-    let (hrh, body) = client::parse_request(&buf[..n]).expect("Failed to parse ack");
+    let (hrh, body) = client::parse_request(&read_buf).expect("Failed to parse ack");
     client
         .receive_ack(hrh, &body)
         .expect("Failed to process received ack");
