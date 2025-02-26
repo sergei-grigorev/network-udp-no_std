@@ -94,18 +94,12 @@ impl State {
             self.sessions.insert(session_id, new_session);
             session_id
         } else {
-            log::info!(
-                "Received message from session [{} / {}]",
-                header.session_id,
-                header.sequence
-            );
             header.session_id
         };
 
         // get the session from the map and update it
         if let Some(session) = self.sessions.get_mut(&session_id) {
-            if session.last_sequence_id < header.sequence {
-                // update session state
+            if session.last_sequence_id <= header.sequence {
                 session.last_sequence_id = header.sequence;
                 session.last_timestamp = Instant::now();
 
@@ -129,7 +123,7 @@ impl State {
             } else {
                 // ignore as duplicate
                 log::warn!(
-                    "Duplicate message received: {} (sequence: {})",
+                    "Received old message, ignored: {} (sequence: {})",
                     session_id,
                     session.last_sequence_id
                 );

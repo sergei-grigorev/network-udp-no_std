@@ -16,8 +16,13 @@ mod state;
 /// This is used to remove inactive sessions.
 const CLEANUP_INTERVAL: u64 = 5 * 60; // 5 minutes
 
+/// Response to be sent to the client.
+/// Contains the address of the client, session ID, ACK ID, and the message buffer.
+#[derive(Clone)]
 struct Response {
     addr: SocketAddr,
+    session_id: u16,
+    ack_id: u16,
     buf: Vec<u8>,
 }
 
@@ -43,7 +48,6 @@ pub async fn start_server(addr: &str) -> std::io::Result<()> {
     let mut cleanup_interval =
         tokio::time::interval(std::time::Duration::from_secs(CLEANUP_INTERVAL));
 
-    // todo: add graceful shutdown
     loop {
         let input_queue = socket.recv_from(&mut buf);
         let output_queue = receiver.recv();
@@ -55,6 +59,11 @@ pub async fn start_server(addr: &str) -> std::io::Result<()> {
             socket_received = input_queue => {
                 match socket_received {
                     Ok((amt, addr)) => {
+                        // randomly ignore it
+                        if rand::random::<u8>() % 3 == 0 {
+                            log::warn!("Ignoring message from {}", addr);
+                            continue;
+                        }
                         let socket_span = span!(Level::INFO, "udp_server", addr = addr.to_string());
                         // wait for the message to be processed (ignore errors)
                         let bytes = &buf[..amt];
@@ -69,6 +78,10 @@ pub async fn start_server(addr: &str) -> std::io::Result<()> {
                 if let Some(output_message) = output_message {
                     let socket_span = span!(Level::INFO, "udp_server", addr = output_message.addr.to_string());
                     // wait for the message to be sent (ignore errors)
+                    if rand::random::<u8>() % 3 == 0 {
+                        log::warn!("Ignoring message to {}", output_message.addr);
+                        continue;
+                    }
                     let _ = send_response(&socket, output_message).instrument(socket_span).await;
                 } else {
                     log::warn!("Response queue has been stopped");
@@ -98,6 +111,7 @@ pub async fn start_server(addr: &str) -> std::io::Result<()> {
 /// **Arguments**
 /// - `socket`: The socket to send the message to.
 /// - `output_message`: The message to send.
+#[tracing::instrument(skip(socket, output_message), fields(session_id=output_message.session_id, sequence_id=output_message.ack_id))]
 async fn send_response(socket: &UdpSocket, output_message: Response) -> std::io::Result<()> {
     log::info!("Sending response to {}", output_message.addr);
 
