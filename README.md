@@ -77,22 +77,24 @@ The project includes both client and server executables.
 
 ```bash
 # Run the server
-make run-server
+env RUST_LOG=info make run-server
 
 # Or directly with cargo
-cargo run --bin server
+env RUST_LOG=info cargo run --bin server
 ```
 
 The server will start on `127.0.0.1:8080` by default.
+
+**Note**: The server is configured to deliberately drop approximately 30% of incoming messages to simulate real-world network conditions and test the reliability of the communication protocol. This behavior helps ensure the client's ability to handle packet loss gracefully.
 
 ### Running the Client
 
 ```bash
 # Run the client
-make run-client
+env RUST_LOG=info make run-client
 
 # Or directly with cargo
-cargo run --bin client
+env RUST_LOG=info cargo run --bin client
 ```
 
 ## Protocol Details
@@ -118,6 +120,18 @@ The communication protocol includes:
    - Uses Noise Protocol Framework
    - ChaCha20-Poly1305 for encryption
    - BLAKE2s for hashing
+
+## Testing and Simulation
+
+### Network Conditions Simulation
+
+The server includes built-in simulation of network conditions to test the reliability of the communication protocol:
+
+- **Packet Loss**: Approximately 30% of incoming messages are randomly dropped to simulate poor network conditions
+- **Message Ordering**: Messages may arrive out of order (inherent in UDP)
+- **No Duplicate Detection**: The protocol handles duplicate messages through sequence numbers
+
+These simulations help ensure the protocol is robust in real-world network conditions where packet loss and reordering are common.
 
 ## Example Usage
 
